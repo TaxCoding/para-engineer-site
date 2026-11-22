@@ -6,6 +6,7 @@ import { icon, LINK_TYPES } from '../lib/icons.js';
 import { projectCard, statusChip, placeholder } from '../lib/cards.js';
 import { socialButtons } from '../lib/shell.js';
 import { trackPageview } from '../lib/track.js';
+import { errorPage } from './error.js';
 import {
   checkSerialSupport,
   describePort,
@@ -17,7 +18,6 @@ import {
   openSerialMonitor,
   SERIAL_DRIVERS,
 } from '../lib/flasher.js';
-import { errorPage } from './error.js';
 
 const TYPE_ORDER = ['repository', 'production', 'documentation', 'demo'];
 
@@ -51,23 +51,13 @@ export async function projectPage(view, { params }) {
     stopReveal();
   };
 }
+
 export function notFound(view) {
   errorPage(view, {
     code: 404,
     title: 'Proyek tidak ditemukan.',
-    reason: `Proyek "${location.pathname}" tidak ada, salah alamat, atau belum dipublikasikan.`,
+    reason: `Proyek "${location.pathname}" tidak ditemukan, salah slug, atau masih berstatus draft.`,
   });
-}
-
-export function notFound(view) {
-  setMeta({ title: 'Not found — Para Engineer' });
-  view.innerHTML = `
-    <section class="wrap narrow state-box">
-      <span class="eyebrow">404</span>
-      <h1>Nothing to see here.</h1>
-      <p class="muted">This page doesn't exist, or it hasn't been published yet.</p>
-      <a class="btn primary" href="/">${icon('arrowLeft')}Back home</a>
-    </section>`;
 }
 
 function render(p, c, others) {
@@ -75,7 +65,7 @@ function render(p, c, others) {
   const isPreview = p.status !== 'published';
   return `
   <article class="wrap detail" data-project="${esc(p.id)}">
-    <a class="back-link" href="/#projects">${icon('arrowLeft')}<span>All projects</span></a>
+    <a class="back-link" href="/projects">${icon('arrowLeft')}<span>All projects</span></a>
 
     ${isPreview ? `<div class="preview-banner">${icon('eye')}<span><strong>${esc(p.status)}</strong> — only you can see this page while signed in as admin.</span></div>` : ''}
 
@@ -145,7 +135,6 @@ function deploySection(p) {
         <span class="chip status ${sup.ok ? 'published' : 'draft'}">${sup.ok ? 'Web Serial Ready' : 'Desktop Chrome/Edge Only'}</span>
       </div>
 
-      <!-- Info file .bin & alamat memori tetap tampil di semua perangkat (termasuk HP) -->
       <div class="deploy-files">
         ${d.files.map((f) => `<span class="chip"><code>${esc(f.name)}</code> · ${esc(f.address)}</span>`).join('')}
       </div>
@@ -160,7 +149,6 @@ function deploySection(p) {
           : ''
       }
 
-      <!-- Tombol tetap ditampilkan (redup/nonaktif jika tidak didukung di HP/Safari) -->
       <div class="deploy-actions ${sup.ok ? '' : 'is-disabled'}">
         <button type="button" class="btn primary" id="flashBtn" data-track="Flash firmware" ${dis}>Connect &amp; Flash</button>
         <button type="button" class="btn" id="testPortBtn" ${dis}>Test Koneksi</button>
@@ -178,7 +166,7 @@ function deploySection(p) {
 
       ${
         !sup.ok
-          ? `<div class="callout deploy-unsupported">
+          ? `<div class="deploy-unsupported">
               ${icon('info')}
               <span><strong>Tidak dapat men-deploy firmware di perangkat/browser ini.</strong> Harap gunakan browser yang didukung: <strong>Google Chrome, Microsoft Edge, atau Opera di Laptop/PC (Desktop)</strong>.</span>
             </div>`
@@ -205,7 +193,6 @@ function deploySection(p) {
   </section>`;
 }
 
-// Konverter warna ANSI (ESP-IDF green/yellow/red) yang aman tanpa innerHTML raw
 function createAnsiWriter(logEl, wrapEl) {
   let pending = '';
   let currentColor = '';
@@ -320,12 +307,11 @@ function initDeploy(view, project) {
   let monitorHandle = null;
 
   function setPortStatus(state, label) {
-    portDot.className = `port-dot ${state}`; // 'ok' | 'off' | ''
+    portDot.className = `port-dot ${state}`;
     portTxt.textContent = label;
     changePortBtn.hidden = state === '';
   }
 
-  // Cek apakah browser sudah mengingat port yang sebelumnya pernah diizinkan
   getAuthorizedPort().then((p) => {
     if (p) {
       activePort = p;
@@ -333,7 +319,6 @@ function initDeploy(view, project) {
     }
   });
 
-  // Deteksi real-time jika kabel USB dicabut / dicolok ulang
   const unsubSerial = subscribeSerialEvents({
     onConnect(port) {
       activePort = port;
