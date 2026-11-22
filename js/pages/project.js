@@ -17,6 +17,7 @@ import {
   openSerialMonitor,
   SERIAL_DRIVERS,
 } from '../lib/flasher.js';
+import { errorPage } from './error.js';
 
 const TYPE_ORDER = ['repository', 'production', 'documentation', 'demo'];
 
@@ -49,6 +50,13 @@ export async function projectPage(view, { params }) {
     stopDeploy();
     stopReveal();
   };
+}
+export function notFound(view) {
+  errorPage(view, {
+    code: 404,
+    title: 'Proyek tidak ditemukan.',
+    reason: `Proyek "${location.pathname}" tidak ada, salah alamat, atau belum dipublikasikan.`,
+  });
 }
 
 export function notFound(view) {

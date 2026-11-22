@@ -4,6 +4,8 @@ import { initShell, applyShell } from './lib/shell.js';
 import { trackClick } from './lib/track.js';
 import { homePage } from './pages/home.js';
 import { projectPage, notFound } from './pages/project.js';
+import { projectsPage } from './pages/projects.js';
+import { errorPage } from './pages/error.js';
 
 // ---------- lazy loader stylesheet admin ----------
 let adminCssPromise = null;
@@ -23,8 +25,9 @@ function ensureAdminCss() {
 
 // ---------- rute publik ----------
 route('/', homePage, { shell: 'public' });
+route('/projects', projectsPage, { shell: 'public' });
 route('/projects/:slug', projectPage, { shell: 'public' });
-route('/404', (view) => notFound(view), { shell: 'public' });
+route('/404', (view, ctx) => errorPage(view, ctx?.error || { code: 404 }), { shell: 'public' });
 
 // ---------- rute admin ----------
 const needAdmin = ({ path }) => (api.isAdmin() ? null : `/admin?next=${encodeURIComponent(path)}`);

@@ -195,8 +195,9 @@ function normalizeContentUrls(node) {
           try {
             const res = await apiFetch('/v1/auth/session', { auth: true });
             admin = res?.isAdmin === true;
-          } catch {
-            admin = false;
+          } catch (err) {
+              if (err?.status === 401 || err?.status === 403) admin = false;
+               else admin = true; // Jangan langsung logout kalau cuma jaringan kedip saat reload
           }
           if (!admin) {
             session = null;

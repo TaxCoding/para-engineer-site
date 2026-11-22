@@ -4,7 +4,7 @@ import { esc, renderRich, observeReveal, setMeta, fmtDate } from '../lib/util.js
 import { config } from '../config.js';
 import { initCats } from '../lib/cats.js';
 import { icon } from '../lib/icons.js';
-import { projectCard, skeletonCards, placeholder } from '../lib/cards.js';
+import { placeholder } from '../lib/cards.js';
 import { socialButtons, setActiveNav, setInventoryReady } from '../lib/shell.js';
 import { trackPageview } from '../lib/track.js';
 import { scrollToHash } from '../lib/router.js';
@@ -46,8 +46,9 @@ export async function homePage(view) {
     console.warn(e);
   }
 
-  const stopShowcase = mountShowcase(view, projects, content0);
-  fillAllProjects(view, projects);
+  // Batasi Showcase Lago maksimal 3 proyek teratas
+  const top3 = projects.slice(0, 3);
+  const stopShowcase = mountShowcase(view, top3, projects.length, content0);
   const stopReveal = observeReveal(view);
 
   const ids = ['top', 'projects', 'about', 'contact'];
@@ -104,14 +105,9 @@ function layout(c) {
         <p>${esc(h.projectsSubtitle)}</p>
       </header>
 
-      <div class="lago-showcase reveal" id="lagoShowcase"></div>
-
-      <div class="all-projects-wrap" id="all-projects">
-        <div class="all-projects-head">
-          <h3>All projects</h3>
-          <span class="muted" id="projectCountLabel"></span>
-        </div>
-        <div class="project-grid" id="projectGrid">${skeletonCards(3)}</div>
+      <!-- Showcase Carousel Top 3 (tanpa duplikasi grid All projects di bawahnya) -->
+      <div class="lago-showcase reveal" id="lagoShowcase">
+        <div class="skeleton-block" style="height:320px"></div>
       </div>
     </section>
 
@@ -145,12 +141,12 @@ function layout(c) {
     </footer>`;
 }
 
-function mountShowcase(view, projects, c) {
+function mountShowcase(view, projects, totalCount, c) {
   const host = view.querySelector('#lagoShowcase');
   if (!host) return () => {};
 
   if (!projects.length) {
-    host.innerHTML = '';
+    host.innerHTML = `<div class="empty-state"><strong>Nothing shipped yet.</strong><p>The senior engineers are still busy doing nothing — check back soon.</p></div>`;
     return () => {};
   }
 
@@ -162,9 +158,8 @@ function mountShowcase(view, projects, c) {
   let rafId = 0;
   let lastTick = 0;
 
-  // Jika hanya 1 proyek: sembunyikan kontrol slide & tombol "Explore all projects"
   host.innerHTML = `
-    <div class="lago-grid">
+    <div class="lago-grid" id="lagoSwipeArea">
       <article class="lago-card-left">
         <div class="lago-timer-track"><div class="lago-timer-fill" id="lagoTimerFill"></div></div>
         <div class="lago-content" id="lagoContent"></div>
@@ -183,12 +178,13 @@ function mountShowcase(view, projects, c) {
             <button type="button" class="lago-circle-btn" id="lagoPauseBtn" aria-label="Pause auto-slide">${ICONS.pause}</button>
             <button type="button" class="lago-circle-btn" id="lagoPrevBtn" aria-label="Previous project">${ICONS.arrowLeft}</button>
             <button type="button" class="lago-circle-btn" id="lagoNextBtn" aria-label="Next project">${ICONS.arrowRight}</button>
-          </div>
-          <div class="lago-explore-wrap">
-            <a class="btn" href="/#all-projects">Explore all projects ${ICONS.arrowRight}</a>
           </div>`
         : ''
-    }`;
+    }
+
+    <div class="lago-explore-wrap">
+      <a class="btn" href="/projects">See all projects ${totalCount > 0 ? `(${totalCount})` : ''} ${ICONS.arrowRight}</a>
+    </div>`;
 
   const fillEl = host.querySelector('#lagoTimerFill');
   const contentEl = host.querySelector('#lagoContent');
@@ -211,7 +207,7 @@ function mountShowcase(view, projects, c) {
     contentEl.innerHTML = `
       <div class="lago-label-row">
         <span class="lago-title">${esc(p.title)}</span>
-        <span class="lago-kicker">Featured project</span>
+        <span class="lago-kicker">Top ${i + 1}</span>
       </div>
       <div class="lago-mark" aria-hidden="true">“</div>
       <p class="lago-quote">${esc(summary)}</p>
@@ -258,11 +254,28 @@ function mountShowcase(view, projects, c) {
   renderSlide(0);
 
   if (projects.length > 1) {
-    const gridEl = host.querySelector('.lago-grid');
+    const gridEl = host.querySelector('#lagoSwipeArea');
     const onEnter = () => { hoverPaused = true; };
     const onLeave = () => { hoverPaused = false; lastTick = performance.now(); };
     gridEl.addEventListener('mouseenter', onEnter);
     gridEl.addEventListener('mouseleave', onLeave);
+
+    // Geser jari (Touch Swipe) khusus HP
+    let touchStartX = 0;
+    let touchStartY = 0;
+    const onTouchStart = (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    };
+    const onTouchEnd = (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        go(dx < 0 ? index + 1 : index - 1);
+      }
+    };
+    gridEl.addEventListener('touchstart', onTouchStart, { passive: true });
+    gridEl.addEventListener('touchend', onTouchEnd, { passive: true });
 
     pauseBtn?.addEventListener('click', () => {
       userPaused = !userPaused;
@@ -278,29 +291,11 @@ function mountShowcase(view, projects, c) {
       cancelAnimationFrame(rafId);
       gridEl.removeEventListener('mouseenter', onEnter);
       gridEl.removeEventListener('mouseleave', onLeave);
+      gridEl.removeEventListener('touchstart', onTouchStart);
+      gridEl.removeEventListener('touchend', onTouchEnd);
     };
   }
 
   if (fillEl) fillEl.style.transform = 'scaleX(1)';
   return () => {};
-}
-
-function fillAllProjects(view, projects) {
-  const wrap = view.querySelector('#all-projects');
-  const grid = view.querySelector('#projectGrid');
-  const label = view.querySelector('#projectCountLabel');
-
-  // Kalau cuma 1 proyek, cukup tampilkan di UI Lago (jangan duplikat ke All projects)
-  if (projects.length === 1) {
-    if (wrap) wrap.hidden = true;
-    return;
-  }
-
-  if (wrap) wrap.hidden = false;
-  if (label) label.textContent = projects.length ? `${projects.length} total` : '';
-  if (!grid) return;
-
-  grid.innerHTML = projects.length
-    ? projects.map(projectCard).join('')
-    : `<div class="empty-state"><strong>Nothing shipped yet.</strong><p>The senior engineers are still busy doing nothing — check back soon.</p></div>`;
 }

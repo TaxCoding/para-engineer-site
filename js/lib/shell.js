@@ -175,7 +175,7 @@ function markActive(route) {
     $$('[data-path]', sb).forEach((a) =>
       a.classList.toggle('active', path === a.dataset.path || path.startsWith(a.dataset.path + '/'))
     );
-  } else if (path.startsWith('/projects/')) {
+  } else if (path === '/projects' || path.startsWith('/projects/')) {
     setActiveNav('projects');
   } else if (path === '/') {
     setActiveNav(route.hash ? route.hash.slice(1) : 'top');

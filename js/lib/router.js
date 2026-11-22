@@ -1,5 +1,6 @@
-// Router History API ringan dengan transisi halaman halus.
+// Router History API ringan dengan transisi halus + halaman error dinamis.
 import { sleep } from './util.js';
+import { errorPage } from '../pages/error.js';
 
 const routes = [];
 let current = null;
@@ -7,34 +8,43 @@ let renderToken = 0;
 let cleanup = null;
 let onShell = () => {};
 
-export const guard = { fn: null }; // fn(): boolean | Promise<boolean>  → false = batalkan navigasi
+export const guard = { fn: null }; // fn(): boolean | Promise<boolean> -> false = batalkan navigasi
+
+function normalizePath(pathname) {
+  if (!pathname || pathname === '/index.html') return '/';
+  return pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+}
 
 export function route(pattern, handler, opts = {}) {
   const keys = [];
+  const cleanPattern = normalizePath(pattern);
   const re = new RegExp(
     '^' +
-      pattern.replace(/\/:([a-zA-Z]+)/g, (_, k) => {
-        keys.push(k);
-        return '/([^/]+)';
-      }) +
+      (cleanPattern === '/'
+        ? '/'
+        : cleanPattern.replace(/\/:([a-zA-Z]+)/g, (_, k) => {
+            keys.push(k);
+            return '/([^/]+)';
+          })) +
       '/?$'
   );
-  routes.push({ re, keys, handler, opts, pattern });
+  routes.push({ re, keys, handler, opts, pattern: cleanPattern });
 }
 
 function match(pathname) {
+  const clean = normalizePath(pathname);
   for (const r of routes) {
-    const m = r.re.exec(pathname);
+    const m = r.re.exec(clean);
     if (m) {
       const params = {};
       r.keys.forEach((k, i) => (params[k] = decodeURIComponent(m[i + 1])));
-      return { route: r, params };
+      return { route: r, params, path: clean };
     }
   }
   return null;
 }
 
-export const getPath = () => location.pathname;
+export const getPath = () => normalizePath(location.pathname);
 export const getCurrent = () => current;
 
 export async function navigate(to, { replace = false, force = false } = {}) {
@@ -43,19 +53,20 @@ export async function navigate(to, { replace = false, force = false } = {}) {
     location.href = to;
     return;
   }
-  const samePath = url.pathname === location.pathname;
+  const targetPath = normalizePath(url.pathname);
+  const currentPath = normalizePath(location.pathname);
+  const samePath = targetPath === currentPath;
 
   if (!force && guard.fn && !samePath && (await guard.fn()) === false) return;
 
   if (samePath && !force) {
     if (url.search === location.search) {
-      // hanya hash: scroll halus
-      if (url.hash !== location.hash) history.pushState({}, '', url);
+      if (url.hash !== location.hash) history.pushState({}, '', targetPath + url.search + url.hash);
       scrollToHash(url.hash);
       return;
     }
   }
-  history[replace ? 'replaceState' : 'pushState']({}, '', url.pathname + url.search + url.hash);
+  history[replace ? 'replaceState' : 'pushState']({}, '', targetPath + url.search + url.hash);
   await render(true);
 }
 
@@ -68,20 +79,36 @@ export function scrollToHash(hash, smooth = true) {
   if (el) el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
 }
 
-async function render(isNav) {
+async function render(isNav, depth = 0) {
   const token = ++renderToken;
   const view = document.getElementById('view');
-  const m = match(location.pathname) || match('/404');
-  if (!m) return;
+  const reqPath = normalizePath(location.pathname);
 
-  // pengalihan (mis. halaman admin tanpa login)
-  const to = m.route.opts.redirect?.({ params: m.params, query: new URLSearchParams(location.search), path: location.pathname });
-  if (to) {
-    history.replaceState({}, '', to);
-    return render(isNav);
+  let m = match(reqPath);
+  let routeError = null;
+
+  if (!m) {
+    routeError = {
+      code: 404,
+      title: 'Halaman tidak ditemukan.',
+      reason: `Alamat "${location.pathname}" tidak terdaftar atau halaman sudah dipindahkan.`,
+    };
+    m = match('/404');
   }
 
-  // transisi keluar
+  // Pengalihan (mis. belum login -> /admin?next=...)
+  if (m && depth < 4) {
+    const to = m.route.opts.redirect?.({
+      params: m.params,
+      query: new URLSearchParams(location.search),
+      path: reqPath,
+    });
+    if (to) {
+      history.replaceState({}, '', to);
+      return render(isNav, depth + 1);
+    }
+  }
+
   if (isNav && view.children.length) {
     view.classList.add('view-leave');
     await sleep(140);
@@ -92,8 +119,14 @@ async function render(isNav) {
     cleanup = null;
   }
 
-  const ctx = { params: m.params, query: new URLSearchParams(location.search), hash: location.hash, path: location.pathname };
-  current = { ...ctx, opts: m.route.opts, pattern: m.route.pattern };
+  const ctx = {
+    params: m?.params || {},
+    query: new URLSearchParams(location.search),
+    hash: location.hash,
+    path: reqPath,
+    error: routeError,
+  };
+  current = { ...ctx, opts: m?.route.opts || { shell: 'public' }, pattern: m?.route.pattern || '/404' };
 
   await onShell(current);
   if (token !== renderToken) return;
@@ -106,15 +139,29 @@ async function render(isNav) {
   view.classList.add('view-enter');
 
   try {
-    const res = await m.route.handler(view, ctx);
-    if (token !== renderToken) {
-      if (typeof res === 'function') res();
-      return;
+    if (!m) {
+      errorPage(view, routeError || { code: 404 });
+    } else {
+      const res = await m.route.handler(view, ctx);
+      if (token !== renderToken) {
+        if (typeof res === 'function') res();
+        return;
+      }
+      cleanup = typeof res === 'function' ? res : null;
     }
-    cleanup = typeof res === 'function' ? res : null;
   } catch (err) {
     console.error(err);
-    view.innerHTML = `<section class="wrap narrow state-box"><h1>Something went wrong</h1><p class="muted">${String(err.message || err)}</p><a class="btn" href="/">Back home</a></section>`;
+    const code = err?.status || (navigator.onLine === false ? 'OFFLINE' : 500);
+    const reason =
+      navigator.onLine === false
+        ? 'Koneksi internetmu terputus. Periksa jaringan lalu coba muat ulang.'
+        : err?.message || 'Terjadi kesalahan internal saat memuat halaman ini.';
+    errorPage(view, {
+      code,
+      reason,
+      actionHref: code === 401 || code === 403 ? '/admin' : '/',
+      actionLabel: code === 401 || code === 403 ? 'Sign in' : 'Back home',
+    });
   }
 
   if (ctx.hash) requestAnimationFrame(() => scrollToHash(ctx.hash, false));
