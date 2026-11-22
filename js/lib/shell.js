@@ -11,13 +11,18 @@ const sidebar = () => document.getElementById('leftSidebar');
 const drawer = () => document.getElementById('inventoryDrawer');
 const btnInv = () => document.getElementById('inventoryBtn');
 const topNav = () => document.getElementById('topNav');
-const mobileNav = () => document.getElementById('mobileNavDrawer');
-const mobileNavBtn = () => document.getElementById('mobileNavBtn');
 const headerCtaSlot = () => document.getElementById('headerCtaSlot');
 
 let built = { drawer: false };
 let drawerOpen = false;
 let lastContent = mergeContent({});
+
+const PUBLIC_NAV = [
+  ['top', '/', 'Home'],
+  ['projects', '/#projects', 'Projects'],
+  ['about', '/#about', 'About'],
+  ['contact', '/#contact', 'Contact'],
+];
 
 export function socialButtons(content, { onlyContact = false } = {}) {
   const c = content || lastContent;
@@ -41,16 +46,10 @@ export function setSidebarOpen(open) {
   document.getElementById('sidebarBackdrop')?.classList.toggle('show', open && window.innerWidth < 768);
 }
 
-function setMobileNavOpen(open) {
-  mobileNav()?.classList.toggle('open', open);
-  mobileNavBtn()?.setAttribute('aria-expanded', open ? 'true' : 'false');
-}
-
 export function openDrawer() {
   const d = drawer(), b = btnInv();
   if (drawerOpen || !d || !b) return;
   drawerOpen = true;
-  setMobileNavOpen(false);
   d.classList.remove('closing');
   d.classList.add('open');
   d.setAttribute('aria-hidden', 'false');
@@ -75,6 +74,7 @@ function buildDrawer() {
   built.drawer = true;
   drawer().innerHTML = `
     <div class="drawer-header"><span>Inventory</span><small>pat at your own risk</small></div>
+    <nav class="drawer-nav" data-drawer-nav aria-label="Mobile navigation"></nav>
     <div class="drawer-cats">
       <div class="drawer-cat-slot tilt-left">
         <div class="cat-interactive protected-zone" data-cat="1" data-sound="/assets/miaw.mp3">
@@ -96,26 +96,24 @@ function buildDrawer() {
 }
 
 function renderDrawerContent(content) {
+  const dNav = $('[data-drawer-nav]', drawer());
+  if (dNav) {
+    dNav.innerHTML = PUBLIC_NAV.map(
+      ([key, href, label]) => `<a class="drawer-nav-link" data-nav="${key}" href="${href}">${label}</a>`
+    ).join('');
+  }
   const slot = $('[data-social-slot]', drawer());
   if (slot) slot.innerHTML = socialButtons(content);
   const lic = $('[data-license]', drawer());
   if (lic) lic.textContent = `© ${new Date().getFullYear()} ${content.site.owner} · ${content.site.license}`;
 }
 
-const PUBLIC_NAV = [
-  ['top', '/', 'Home'],
-  ['projects', '/#projects', 'Projects'],
-  ['about', '/#about', 'About'],
-  ['contact', '/#contact', 'Contact'],
-];
-
 function renderPublicTopbar(content) {
-  const linksHtml = PUBLIC_NAV.map(
-    ([key, href, label]) => `<a class="top-nav-link" data-nav="${key}" href="${href}">${label}</a>`
-  ).join('');
-
-  if (topNav()) topNav().innerHTML = linksHtml;
-  if (mobileNav()) mobileNav().innerHTML = linksHtml;
+  if (topNav()) {
+    topNav().innerHTML = PUBLIC_NAV.map(
+      ([key, href, label]) => `<a class="top-nav-link" data-nav="${key}" href="${href}">${label}</a>`
+    ).join('');
+  }
   if (headerCtaSlot()) {
     headerCtaSlot().innerHTML = content.contact.email
       ? `<a class="say-hi-btn js-email-btn" href="mailto:${esc(content.contact.email)}" data-track="Header email">${icon('mail')}<span>Say hi</span></a>`
@@ -163,7 +161,7 @@ function adminSidebar() {
 }
 
 export function setActiveNav(key) {
-  $$('#topNav [data-nav], #mobileNavDrawer [data-nav]').forEach((a) =>
+  $$('#topNav [data-nav], #inventoryDrawer [data-nav]').forEach((a) =>
     a.classList.toggle('active', a.dataset.nav === key)
   );
 }
@@ -212,7 +210,6 @@ export async function applyShell(route) {
   buildDrawer();
   renderDrawerContent(content);
   markActive(route);
-  setMobileNavOpen(false);
 
   if (kind === 'admin') setInventoryReady(false);
   else if (route.path !== '/') setInventoryReady(true);
@@ -240,11 +237,6 @@ export function initShell() {
   });
   document.getElementById('sidebarBackdrop')?.addEventListener('click', () => setSidebarOpen(false));
 
-  mobileNavBtn()?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setMobileNavOpen(!mobileNav()?.classList.contains('open'));
-  });
-
   const b = btnInv();
   b?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -253,21 +245,15 @@ export function initShell() {
 
   document.addEventListener('pointerdown', (e) => {
     if (drawerOpen && !drawer().contains(e.target) && !b.contains(e.target)) closeDrawer();
-    if (mobileNav()?.classList.contains('open') && !mobileNav().contains(e.target) && !mobileNavBtn().contains(e.target)) {
-      setMobileNavOpen(false);
-    }
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeDrawer();
-      setMobileNavOpen(false);
-    }
+    if (e.key === 'Escape') closeDrawer();
   });
 
   document.addEventListener('click', async (e) => {
     if (e.target.closest('#closeSidebarBtn')) setSidebarOpen(false);
-    if (e.target.closest('#mobileNavDrawer a')) setMobileNavOpen(false);
+    if (e.target.closest('.drawer-nav a')) closeDrawer();
     if (e.target.closest('#signOutBtn')) {
       await api.signOut();
       toast('Signed out');

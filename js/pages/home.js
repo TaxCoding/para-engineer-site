@@ -104,10 +104,8 @@ function layout(c) {
         <p>${esc(h.projectsSubtitle)}</p>
       </header>
 
-      <!-- Showcase Carousel ala Lago dengan Timer Biru Otomatis -->
       <div class="lago-showcase reveal" id="lagoShowcase"></div>
 
-      <!-- Daftar Grid Proyek Lengkap -->
       <div class="all-projects-wrap" id="all-projects">
         <div class="all-projects-head">
           <h3>All projects</h3>
@@ -117,7 +115,6 @@ function layout(c) {
       </div>
     </section>
 
-    <!-- About Polos (Tanpa Card) + Kutipan Motivasi Hidup -->
     <section class="section wrap narrow about-plain" id="about">
       <div class="about-divider reveal">
         ${c.about.photoUrl ? `<img class="about-photo" src="${esc(c.about.photoUrl)}" alt="${esc(c.site.owner)}" loading="lazy" />` : ''}
@@ -138,7 +135,6 @@ function layout(c) {
       </div>
     </section>
 
-    <!-- Satu Footer Tunggal (Contact + Social Media + Lisensi) -->
     <footer class="landing-footer" id="contact">
       <div class="footer-head">
         <h2>${esc(c.contact.ctaTitle)}</h2>
@@ -166,6 +162,7 @@ function mountShowcase(view, projects, c) {
   let rafId = 0;
   let lastTick = 0;
 
+  // Jika hanya 1 proyek: sembunyikan kontrol slide & tombol "Explore all projects"
   host.innerHTML = `
     <div class="lago-grid">
       <article class="lago-card-left">
@@ -186,13 +183,12 @@ function mountShowcase(view, projects, c) {
             <button type="button" class="lago-circle-btn" id="lagoPauseBtn" aria-label="Pause auto-slide">${ICONS.pause}</button>
             <button type="button" class="lago-circle-btn" id="lagoPrevBtn" aria-label="Previous project">${ICONS.arrowLeft}</button>
             <button type="button" class="lago-circle-btn" id="lagoNextBtn" aria-label="Next project">${ICONS.arrowRight}</button>
+          </div>
+          <div class="lago-explore-wrap">
+            <a class="btn" href="/#all-projects">Explore all projects ${ICONS.arrowRight}</a>
           </div>`
         : ''
-    }
-
-    <div class="lago-explore-wrap">
-      <a class="btn" href="/#all-projects">Explore all projects ${ICONS.arrowRight}</a>
-    </div>`;
+    }`;
 
   const fillEl = host.querySelector('#lagoTimerFill');
   const contentEl = host.querySelector('#lagoContent');
@@ -290,10 +286,20 @@ function mountShowcase(view, projects, c) {
 }
 
 function fillAllProjects(view, projects) {
+  const wrap = view.querySelector('#all-projects');
   const grid = view.querySelector('#projectGrid');
   const label = view.querySelector('#projectCountLabel');
+
+  // Kalau cuma 1 proyek, cukup tampilkan di UI Lago (jangan duplikat ke All projects)
+  if (projects.length === 1) {
+    if (wrap) wrap.hidden = true;
+    return;
+  }
+
+  if (wrap) wrap.hidden = false;
   if (label) label.textContent = projects.length ? `${projects.length} total` : '';
   if (!grid) return;
+
   grid.innerHTML = projects.length
     ? projects.map(projectCard).join('')
     : `<div class="empty-state"><strong>Nothing shipped yet.</strong><p>The senior engineers are still busy doing nothing — check back soon.</p></div>`;

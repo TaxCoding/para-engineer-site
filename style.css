@@ -500,8 +500,25 @@ body.shell-admin .header-inner {
 }
 
 @media (max-width: 767px) {
-  .top-nav {
-    display: none;
+  .top-nav,
+  .mobile-menu-btn,
+  .mobile-nav-drawer {
+    display: none !important;
+  }
+
+  .header-inner {
+    height: 56px;
+    padding: 0 1rem;
+  }
+
+  .brand {
+    font-size: 0.95rem;
+    gap: 0.45rem;
+  }
+
+  .cat-logo {
+    width: 28px;
+    height: 28px;
   }
 
   .say-hi-btn span {
@@ -509,21 +526,18 @@ body.shell-admin .header-inner {
   }
 
   .say-hi-btn {
-    padding: 0.45rem 0.58rem;
+    padding: 0.42rem 0.56rem;
   }
 
-  .mobile-menu-btn {
-    display: inline-flex;
-  }
-
-  .mobile-nav-drawer.open {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    padding: 0.65rem 1.25rem 0.85rem;
-    border-top: 1px solid var(--border);
-    background: var(--bg);
-    animation: fadeSlideIn 0.2s var(--ease);
+  /* Di HP, hanya ada SATU tombol garis 3 (selalu siap untuk navigasi + laci kucing) */
+  body.shell-public .hamburger-btn {
+    width: 36px;
+    height: 36px;
+    margin-left: 0;
+    border-color: var(--border);
+    opacity: 1;
+    pointer-events: auto;
+    transform: scale(1);
   }
 }
 
@@ -791,6 +805,44 @@ body.inventory-ready .hamburger-btn {
 .drawer-header small {
   font-size: 0.72rem;
   color: var(--faint);
+}
+/* Navigasi di dalam laci (hanya muncul di layar HP) */
+.drawer-nav {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .inventory-drawer {
+    top: 62px;
+    right: 12px;
+    width: min(310px, calc(100vw - 24px));
+  }
+
+  .drawer-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.7rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .drawer-nav-link {
+    padding: 0.34rem 0.68rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+
+  .drawer-nav-link.active {
+    background: var(--accent-soft);
+    border-color: var(--blue-200);
+    color: var(--accent);
+  }
 }
 
 .drawer-cats {
