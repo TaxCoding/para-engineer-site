@@ -2,7 +2,7 @@
 // yang sama persis dengan supabase.js. Aktif otomatis kalau config.js belum diisi.
 // Berguna untuk mencoba semua fitur admin sebelum Supabase terpasang.
 import { mergeContent, CONTENT_KEYS } from './defaults.js';
-import { ApiError } from './supabase.js';
+import { ApiError } from './edge.js';
 import { uid } from '../lib/util.js';
 
 const DB_KEY = 'pe_demo_db_v1';

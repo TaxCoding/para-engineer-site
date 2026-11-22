@@ -5,6 +5,22 @@ import { trackClick } from './lib/track.js';
 import { homePage } from './pages/home.js';
 import { projectPage, notFound } from './pages/project.js';
 
+// ---------- lazy loader stylesheet admin ----------
+let adminCssPromise = null;
+function ensureAdminCss() {
+  if (!adminCssPromise) {
+    adminCssPromise = new Promise((resolve) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/css/admin.css';
+      link.onload = resolve;
+      link.onerror = resolve;
+      document.head.appendChild(link);
+    });
+  }
+  return adminCssPromise;
+}
+
 // ---------- rute publik ----------
 route('/', homePage, { shell: 'public' });
 route('/projects/:slug', projectPage, { shell: 'public' });
@@ -13,12 +29,26 @@ route('/404', (view) => notFound(view), { shell: 'public' });
 // ---------- rute admin ----------
 const needAdmin = ({ path }) => (api.isAdmin() ? null : `/admin?next=${encodeURIComponent(path)}`);
 const admin = (path, loader) =>
-  route(path, async (view, ctx) => (await loader()).default(view, ctx), { shell: 'admin', redirect: needAdmin });
+  route(
+    path,
+    async (view, ctx) => {
+      const [, mod] = await Promise.all([ensureAdminCss(), loader()]);
+      return mod.default(view, ctx);
+    },
+    { shell: 'admin', redirect: needAdmin }
+  );
 
-route('/admin', async (view, ctx) => (await import('./admin/login.js')).default(view, ctx), {
-  shell: 'public',
-  redirect: () => (api.isAdmin() ? '/admin/dashboard' : null),
-});
+route(
+  '/admin',
+  async (view, ctx) => {
+    const [, mod] = await Promise.all([ensureAdminCss(), import('./admin/login.js')]);
+    return mod.default(view, ctx);
+  },
+  {
+    shell: 'public',
+    redirect: () => (api.isAdmin() ? '/admin/dashboard' : null),
+  }
+);
 admin('/admin/dashboard', () => import('./admin/dashboard.js'));
 admin('/admin/analytics', () => import('./admin/analytics.js'));
 admin('/admin/logs', () => import('./admin/logs.js'));
@@ -51,5 +81,5 @@ document.addEventListener('click', (e) => {
   }
   initShell();
   await startRouter({ shell: applyShell });
-  if (isDemo) console.info('%cPara Engineer · demo mode', 'color:#2563eb;font-weight:700', '— isi js/config.js untuk memakai Supabase.');
+  if (isDemo) console.info('%cPara Engineer · demo mode', 'color:#2563eb;font-weight:700', '— isi js/config.js untuk memakai API.');
 })();
