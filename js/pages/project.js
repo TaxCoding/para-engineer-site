@@ -6,7 +6,17 @@ import { icon, LINK_TYPES } from '../lib/icons.js';
 import { projectCard, statusChip, placeholder } from '../lib/cards.js';
 import { socialButtons } from '../lib/shell.js';
 import { trackPageview } from '../lib/track.js';
-import { checkSerialSupport, testSerialPort, flashFirmwareFromConfig, openSerialMonitor, SERIAL_DRIVERS } from '../lib/flasher.js';
+import {
+  checkSerialSupport,
+  describePort,
+  getAuthorizedPort,
+  pickSerialPort,
+  testSerialPort,
+  subscribeSerialEvents,
+  flashFirmwareFromConfig,
+  openSerialMonitor,
+  SERIAL_DRIVERS,
+} from '../lib/flasher.js';
 
 const TYPE_ORDER = ['repository', 'production', 'documentation', 'demo'];
 
@@ -113,40 +123,67 @@ function deploySection(p) {
   const d = p.deployConfig;
   if (!d?.enabled || !d.files?.length) return '';
   const sup = checkSerialSupport();
+  const dis = sup.ok ? '' : 'disabled';
+
   return `
   <section class="detail-links reveal" id="deploySection" aria-label="Deploy firmware">
     <span class="eyebrow">Firmware Deploy</span>
-    <div class="panel deploy-box">
-      <div class="panel-head">
+    <div class="deploy-box">
+      <div class="deploy-head">
         <div>
-          <div class="panel-title">Flash to ${esc((d.chip || 'ESP32').toUpperCase())} via USB</div>
-          <div class="panel-sub">Source: <code>${esc(d.repo)}/${esc(d.buildDir)}</code> · ${d.files.length} binary file(s)</div>
+          <div class="deploy-title">Flash to ${esc((d.chip || 'ESP32').toUpperCase())} via USB</div>
+          <div class="deploy-sub">Source: <code>${esc(d.repo)}/${esc(d.buildDir)}</code> · ${d.files.length} binary file(s)</div>
         </div>
         <span class="chip status ${sup.ok ? 'published' : 'draft'}">${sup.ok ? 'Web Serial Ready' : 'Desktop Chrome/Edge Only'}</span>
       </div>
 
+      <!-- Info file .bin & alamat memori tetap tampil di semua perangkat (termasuk HP) -->
+      <div class="deploy-files">
+        ${d.files.map((f) => `<span class="chip"><code>${esc(f.name)}</code> · ${esc(f.address)}</span>`).join('')}
+      </div>
+
       ${
         sup.ok
-          ? `<div class="deploy-files">
-              ${d.files.map((f) => `<span class="chip"><code>${esc(f.name)}</code> · ${esc(f.address)}</span>`).join('')}
-            </div>
-            <div class="deploy-actions">
-              <button type="button" class="btn primary" id="flashBtn" data-track="Flash firmware">Connect &amp; Flash</button>
-              <button type="button" class="btn" id="testPortBtn">Test Serial Port</button>
-              <button type="button" class="btn" id="monitorBtn">Serial Monitor</button>
-              <select class="select" id="baudSelect" style="width:auto">
-                <option value="460800" selected>460800 baud</option>
-                <option value="115200">115200 baud (Safe)</option>
-              </select>
-              <label class="switch"><input type="checkbox" id="eraseCheck" /><span class="track"></span><span>Erase flash</span></label>
-            </div>
-            <div class="deploy-progress" id="deployProgressWrap" hidden>
+          ? `<div class="deploy-port-bar" id="portStatusBar">
+              <span class="port-dot" id="portDot"></span>
+              <span class="port-text" id="portStatusText">Belum ada port USB dipilih</span>
+              <button type="button" class="btn sm ghost" id="changePortBtn" hidden>Ganti Port</button>
+            </div>`
+          : ''
+      }
+
+      <!-- Tombol tetap ditampilkan (redup/nonaktif jika tidak didukung di HP/Safari) -->
+      <div class="deploy-actions ${sup.ok ? '' : 'is-disabled'}">
+        <button type="button" class="btn primary" id="flashBtn" data-track="Flash firmware" ${dis}>Connect &amp; Flash</button>
+        <button type="button" class="btn" id="testPortBtn" ${dis}>Test Koneksi</button>
+        <button type="button" class="btn" id="monitorBtn" ${dis}>Serial Monitor</button>
+        <select class="select deploy-baud" id="baudSelect" ${dis}>
+          <option value="460800" selected>460800 baud</option>
+          <option value="115200">115200 baud (Safe)</option>
+        </select>
+        <label class="switch ${sup.ok ? '' : 'is-disabled'}">
+          <input type="checkbox" id="eraseCheck" ${dis} />
+          <span class="track"></span>
+          <span>Erase flash</span>
+        </label>
+      </div>
+
+      ${
+        !sup.ok
+          ? `<div class="callout deploy-unsupported">
+              ${icon('info')}
+              <span><strong>Tidak dapat men-deploy firmware di perangkat/browser ini.</strong> Harap gunakan browser yang didukung: <strong>Google Chrome, Microsoft Edge, atau Opera di Laptop/PC (Desktop)</strong>.</span>
+            </div>`
+          : `<div class="deploy-progress" id="deployProgressWrap" hidden>
               <div class="deploy-bar"><div class="deploy-bar-fill" id="deployBarFill"></div></div>
               <span class="hint" id="deployStatusText">Preparing...</span>
             </div>
-            <pre class="deploy-log" id="deployLog" hidden></pre>`
-          : `<div class="callout">
-              <span>Web Serial tidak tersedia di perangkat/browser ini. Buka halaman ini menggunakan <strong>Chrome, Edge, atau Opera di Laptop/PC</strong> untuk mem-flash firmware langsung lewat USB.</span>
+            <div class="deploy-term-wrap" id="deployTermWrap" hidden>
+              <div class="deploy-term-bar">
+                <span id="deployTermTitle">Console Output</span>
+                <button type="button" class="term-clear-btn" id="clearLogBtn">Clear</button>
+              </div>
+              <pre class="deploy-log" id="deployLog"></pre>
             </div>`
       }
 
@@ -160,58 +197,218 @@ function deploySection(p) {
   </section>`;
 }
 
+// Konverter warna ANSI (ESP-IDF green/yellow/red) yang aman tanpa innerHTML raw
+function createAnsiWriter(logEl, wrapEl) {
+  let pending = '';
+  let currentColor = '';
+  let currentBold = false;
+
+  const COLOR_MAP = {
+    '30': '#94a3b8', '90': '#94a3b8',
+    '31': '#f87171', '91': '#fca5a5',
+    '32': '#4ade80', '92': '#86efac',
+    '33': '#facc15', '93': '#fde047',
+    '34': '#60a5fa', '94': '#93c5fd',
+    '35': '#c084fc', '95': '#d8b4fe',
+    '36': '#22d3ee', '96': '#67e8f9',
+    '37': '#e2e8f0', '97': '#ffffff',
+  };
+
+  function pushText(text) {
+    if (!text) return;
+    const clean = text.replace(/\r\n/g, '\n').replace(/\r/g, '');
+    if (!clean) return;
+    if (!currentColor && !currentBold) {
+      logEl.appendChild(document.createTextNode(clean));
+    } else {
+      const span = document.createElement('span');
+      if (currentColor) span.style.color = currentColor;
+      if (currentBold) span.style.fontWeight = '700';
+      span.textContent = clean;
+      logEl.appendChild(span);
+    }
+  }
+
+  return {
+    clear() {
+      pending = '';
+      currentColor = '';
+      currentBold = false;
+      logEl.textContent = '';
+    },
+    write(chunk, { newline = false, color = '' } = {}) {
+      wrapEl.hidden = false;
+      if (color) {
+        const span = document.createElement('span');
+        span.style.color = color;
+        span.textContent = String(chunk) + (newline ? '\n' : '');
+        logEl.appendChild(span);
+        logEl.scrollTop = logEl.scrollHeight;
+        return;
+      }
+
+      let str = pending + String(chunk) + (newline ? '\n' : '');
+      pending = '';
+
+      const escIdx = str.lastIndexOf('\x1b');
+      if (escIdx !== -1 && escIdx > str.length - 16) {
+        const tail = str.slice(escIdx);
+        if (/^\x1b(\[[0-9;]*)?$/.test(tail)) {
+          pending = tail;
+          str = str.slice(0, escIdx);
+        }
+      }
+
+      const ANSI_RE = /\x1b\[([0-9;]*)m/g;
+      let lastIndex = 0;
+      let match;
+      while ((match = ANSI_RE.exec(str)) !== null) {
+        if (match.index > lastIndex) pushText(str.slice(lastIndex, match.index));
+        const codes = (match[1] || '0').split(';');
+        for (const c of codes) {
+          if (c === '0' || c === '') {
+            currentColor = '';
+            currentBold = false;
+          } else if (c === '1') {
+            currentBold = true;
+          } else if (c === '22') {
+            currentBold = false;
+          } else if (COLOR_MAP[c]) {
+            currentColor = COLOR_MAP[c];
+          }
+        }
+        lastIndex = ANSI_RE.lastIndex;
+      }
+
+      if (lastIndex < str.length) {
+        pushText(str.slice(lastIndex).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ''));
+      }
+      logEl.scrollTop = logEl.scrollHeight;
+    },
+  };
+}
+
 function initDeploy(view, project) {
   const box = $('#deploySection', view);
-  if (!box) return () => {};
+  if (!box || !checkSerialSupport().ok) return () => {};
+
   const d = project.deployConfig;
   const flashBtn = $('#flashBtn', box);
   const testBtn = $('#testPortBtn', box);
   const monitorBtn = $('#monitorBtn', box);
+  const changePortBtn = $('#changePortBtn', box);
+  const portDot = $('#portDot', box);
+  const portTxt = $('#portStatusText', box);
   const progWrap = $('#deployProgressWrap', box);
   const barFill = $('#deployBarFill', box);
   const statusTxt = $('#deployStatusText', box);
+  const termWrap = $('#deployTermWrap', box);
+  const termTitle = $('#deployTermTitle', box);
+  const clearBtn = $('#clearLogBtn', box);
   const logEl = $('#deployLog', box);
 
-  let stopMonitor = null;
-  const appendLog = (line) => {
-    if (!logEl) return;
-    logEl.hidden = false;
-    logEl.textContent += (logEl.textContent ? '\n' : '') + line;
-    logEl.scrollTop = logEl.scrollHeight;
-  };
+  const writer = createAnsiWriter(logEl, termWrap);
+  let activePort = null;
+  let monitorHandle = null;
+
+  function setPortStatus(state, label) {
+    portDot.className = `port-dot ${state}`; // 'ok' | 'off' | ''
+    portTxt.textContent = label;
+    changePortBtn.hidden = state === '';
+  }
+
+  // Cek apakah browser sudah mengingat port yang sebelumnya pernah diizinkan
+  getAuthorizedPort().then((p) => {
+    if (p) {
+      activePort = p;
+      setPortStatus('ok', `Siap: ${describePort(p)}`);
+    }
+  });
+
+  // Deteksi real-time jika kabel USB dicabut / dicolok ulang
+  const unsubSerial = subscribeSerialEvents({
+    onConnect(port) {
+      activePort = port;
+      const name = describePort(port);
+      setPortStatus('ok', `Terhubung kembali: ${name}`);
+      if (!termWrap.hidden) writer.write(`[USB] Perangkat terhubung kembali: ${name}`, { newline: true, color: '#4ade80' });
+    },
+    onDisconnect(port) {
+      if (!activePort || port === activePort) {
+        const name = describePort(port);
+        if (monitorHandle) {
+          monitorHandle.close().catch(() => {});
+          monitorHandle = null;
+          monitorBtn.textContent = 'Serial Monitor';
+        }
+        activePort = null;
+        setPortStatus('off', `Terputus: ${name} (kabel dicabut)`);
+        writer.write(`[USB] Kabel dicabut — perangkat sudah tidak terhubung.`, { newline: true, color: '#f87171' });
+      }
+    },
+  });
+
+  clearBtn?.addEventListener('click', () => writer.clear());
+
+  changePortBtn?.addEventListener('click', async () => {
+    if (monitorHandle) {
+      await monitorHandle.close();
+      monitorHandle = null;
+      monitorBtn.textContent = 'Serial Monitor';
+    }
+    try {
+      const port = await pickSerialPort({ forceNew: true });
+      activePort = port;
+      const name = describePort(port);
+      setPortStatus('ok', `Dipilih: ${name}`);
+      writer.write(`[USB] Port diganti ke: ${name}`, { newline: true, color: '#60a5fa' });
+    } catch (err) {
+      if (err?.name !== 'NotFoundError') writer.write(`[USB] Gagal ganti port: ${err.message}`, { newline: true, color: '#f87171' });
+    }
+  });
 
   testBtn?.addEventListener('click', async () => {
     try {
-      const { info } = await testSerialPort();
-      appendLog(`Port siap! USB VID: ${info.usbVendorId || '-'} · PID: ${info.usbProductId || '-'}`);
+      const { port, label } = await testSerialPort(activePort);
+      activePort = port;
+      setPortStatus('ok', `Terkoneksi: ${label}`);
+      writer.write(`[TEST] Koneksi USB OK — ${label} siap di-flash.`, { newline: true, color: '#4ade80' });
     } catch (err) {
-      if (err?.name !== 'NotFoundError') appendLog(`Gagal cek port: ${err.message}`);
+      if (err?.name !== 'NotFoundError') {
+        setPortStatus('off', 'Gagal terhubung ke perangkat');
+        writer.write(`[TEST] ${err.message}`, { newline: true, color: '#f87171' });
+      }
     }
   });
 
   flashBtn?.addEventListener('click', async () => {
-    if (stopMonitor) {
-      await stopMonitor();
-      stopMonitor = null;
-      if (monitorBtn) monitorBtn.textContent = 'Serial Monitor';
+    if (monitorHandle) {
+      await monitorHandle.close();
+      monitorHandle = null;
+      monitorBtn.textContent = 'Serial Monitor';
     }
     flashBtn.disabled = true;
     progWrap.hidden = false;
-    logEl.textContent = '';
+    termTitle.textContent = 'Flash Log';
+    writer.clear();
+
     try {
-      await flashFirmwareFromConfig(d, {
+      const usedPort = await flashFirmwareFromConfig(d, {
+        port: activePort,
         baudrate: Number($('#baudSelect', box)?.value || 460800),
         eraseAll: $('#eraseCheck', box)?.checked,
-        onLog: appendLog,
+        onLog: (line) => writer.write(line, { newline: true }),
         onProgress(pct, label) {
           barFill.style.width = `${pct}%`;
           statusTxt.textContent = `${pct}% — ${label}`;
         },
       });
+      activePort = usedPort;
+      setPortStatus('ok', `Terkoneksi: ${describePort(usedPort)}`);
     } catch (err) {
       if (err?.name !== 'NotFoundError') {
         statusTxt.textContent = `Error: ${err.message}`;
-        appendLog(`ERROR: ${err.message}`);
+        writer.write(`ERROR: ${err.message}`, { newline: true, color: '#f87171' });
       } else {
         progWrap.hidden = true;
       }
@@ -221,33 +418,41 @@ function initDeploy(view, project) {
   });
 
   monitorBtn?.addEventListener('click', async () => {
-    if (stopMonitor) {
-      await stopMonitor();
-      stopMonitor = null;
+    if (monitorHandle) {
+      await monitorHandle.close();
+      monitorHandle = null;
       monitorBtn.textContent = 'Serial Monitor';
       return;
     }
     try {
-      logEl.hidden = false;
-      stopMonitor = await openSerialMonitor({
+      termTitle.textContent = 'Serial Monitor (115200 baud)';
+      writer.clear();
+      monitorHandle = await openSerialMonitor({
+        port: activePort,
         baudRate: 115200,
         onData(chunk) {
-          logEl.textContent += chunk;
-          logEl.scrollTop = logEl.scrollHeight;
+          writer.write(chunk);
         },
-        onClose() {
-          stopMonitor = null;
+        onClose(reason) {
+          monitorHandle = null;
           monitorBtn.textContent = 'Serial Monitor';
+          if (reason === 'disconnected') {
+            setPortStatus('off', 'Terputus (kabel dicabut)');
+            writer.write(`\n[Monitor] Perangkat sudah tidak terhubung.`, { newline: true, color: '#f87171' });
+          }
         },
       });
+      activePort = monitorHandle.port;
+      setPortStatus('ok', `Monitor aktif: ${describePort(activePort)}`);
       monitorBtn.textContent = 'Close Monitor';
     } catch (err) {
-      if (err?.name !== 'NotFoundError') appendLog(`Monitor error: ${err.message}`);
+      if (err?.name !== 'NotFoundError') writer.write(`Monitor error: ${err.message}`, { newline: true, color: '#f87171' });
     }
   });
 
   return () => {
-    if (stopMonitor) stopMonitor();
+    unsubSerial();
+    if (monitorHandle) monitorHandle.close().catch(() => {});
   };
 }
 
@@ -355,7 +560,6 @@ function initGallery(view, project) {
   };
 }
 
-// ---------- lightbox ----------
 function openLightbox(project, start) {
   const root = document.getElementById('modalRoot');
   let i = start;

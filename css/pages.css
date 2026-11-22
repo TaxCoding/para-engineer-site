@@ -940,31 +940,193 @@ a.project-card:hover .pc-media img { transform: scale(1.045); }
     gap: 0.9rem;
   }
 }
-/* ---------- panel deploy web serial ---------- */
+
 .deploy-box {
-  margin-top: 0.4rem;
-  border-color: var(--blue-200);
+  margin-top: 0.5rem;
+  padding: 1.25rem 1.3rem;
+  border: 1.5px solid var(--blue-200);
+  border-radius: 20px;
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   box-shadow: inset 0 0 0 1.5px rgba(219, 234, 254, 0.55);
 }
-.deploy-files { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
-.deploy-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
-.deploy-progress { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.4rem; }
-.deploy-bar { height: 8px; border-radius: 999px; background: var(--blue-100); overflow: hidden; }
-.deploy-bar-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.2s ease; }
+
+.deploy-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.deploy-title {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.deploy-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+  word-break: break-word;
+}
+
+.deploy-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.95rem;
+}
+
+.deploy-port-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.48rem 0.75rem;
+  margin-bottom: 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.port-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #94a3b8;
+  flex-shrink: 0;
+}
+
+.port-dot.ok { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
+.port-dot.off { background: var(--miwa); box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.16); }
+.port-text { flex: 1; min-width: 0; }
+
+.deploy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.deploy-actions.is-disabled {
+  opacity: 0.48;
+  pointer-events: none;
+  filter: grayscale(0.25);
+}
+
+.deploy-baud {
+  width: auto !important;
+  min-width: 145px;
+}
+
+.deploy-unsupported {
+  margin-top: 0.9rem;
+}
+
+.deploy-progress {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.deploy-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--blue-100);
+  overflow: hidden;
+}
+
+.deploy-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.deploy-term-wrap {
+  margin-top: 0.95rem;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid #1e293b;
+  background: #0f172a;
+}
+
+.deploy-term-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.75rem;
+  background: #1e293b;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.term-clear-btn {
+  border: 1px solid #334155;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.14rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.term-clear-btn:hover {
+  background: #334155;
+  color: #fff;
+}
+
 .deploy-log {
-  margin-top: 0.85rem;
-  max-height: 200px;
+  max-height: 240px;
   overflow: auto;
   padding: 0.75rem 0.9rem;
-  border-radius: 14px;
-  background: #0f172a;
   color: #e2e8f0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.78rem;
-  line-height: 1.5;
+  line-height: 1.55;
   white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
 }
-.driver-help { margin-top: 1rem; font-size: 0.82rem; color: var(--text-muted); }
-.driver-help summary { cursor: pointer; font-weight: 600; color: var(--text-main); }
-.driver-links { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.6rem; }
+
+.driver-help {
+  margin-top: 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.driver-help summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.driver-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+}
+
+@media (max-width: 640px) {
+  .deploy-box {
+    padding: 1rem;
+    border-radius: 16px;
+  }
+
+  .deploy-actions .btn,
+  .deploy-baud {
+    font-size: 0.8rem;
+    padding: 0.45rem 0.78rem;
+  }
+}
