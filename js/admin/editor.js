@@ -14,6 +14,16 @@ const STATUS_HINT = {
   archived: 'Hidden from the site, kept for your records.',
 };
 
+const emptyDeployConfig = () => ({
+  enabled: false,
+  repo: '',
+  branch: 'main',
+  buildDir: '.build',
+  chip: 'esp32',
+  flashSettings: {},
+  files: [],
+});
+
 export default async function editor(view, ctx) {
   const isNew = ctx.path === '/admin/projects/new';
   let project = null;
@@ -47,6 +57,17 @@ export default async function editor(view, ctx) {
     removedPaths: [],
     links: Object.fromEntries(GROUPS.map((g) => [g, (project?.links || []).filter((l) => l.type === g).map((l) => ({ label: l.label, url: l.url }))])),
     prodOn: !!project?.links.some((l) => l.type === 'production'),
+    deployConfig: project?.deployConfig
+      ? {
+          enabled: !!project.deployConfig.enabled,
+          repo: project.deployConfig.repo || '',
+          branch: project.deployConfig.branch || 'main',
+          buildDir: project.deployConfig.buildDir || '.build',
+          chip: project.deployConfig.chip || 'esp32',
+          flashSettings: project.deployConfig.flashSettings || {},
+          files: Array.isArray(project.deployConfig.files) ? project.deployConfig.files.map((f) => ({ ...f })) : [],
+        }
+      : emptyDeployConfig(),
     createdAt: project?.createdAt,
     updatedAt: project?.updatedAt,
   };
@@ -134,6 +155,7 @@ export default async function editor(view, ctx) {
         </div>
 
         <div class="panel" id="panelLinks"></div>
+        <div class="panel" id="panelDeploy"></div>
       </div>
 
       <aside>
@@ -241,10 +263,84 @@ export default async function editor(view, ctx) {
       }).join('')}`;
   }
 
+  function findGithubRepoUrl() {
+    return S.links.repository.find((l) => /github\.com\/[^/\s]+\/[^/\s]+/i.test(l.url.trim()))?.url.trim() || '';
+  }
+
+  function renderDeploy() {
+    const panel = $('#panelDeploy', view);
+    if (!panel) return;
+    const d = S.deployConfig;
+    const hasRepo = !!findGithubRepoUrl();
+    const verified = d.enabled && d.files?.length > 0;
+    const hasInspector = typeof api.inspectGithubBuild === 'function';
+
+    panel.innerHTML = `
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Browser Deploy (Web Serial)</div>
+          <div class="panel-sub">Izinkan pengunjung mem-flash firmware ESP32 langsung dari halaman proyek via USB.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="deploySwitch" ${d.enabled ? 'checked' : ''} />
+          <span class="track"></span>
+          <span>Izinkan Deploy</span>
+        </label>
+      </div>
+      ${
+        d.enabled
+          ? `<div class="stack">
+              <div class="callout ${hasRepo ? '' : 'danger'}" id="deployReqCallout">
+                ${icon('info')}
+                <span>
+                  <strong>Persyaratan:</strong> (1) Link Repository GitHub terisi di panel Links, (2) Repo wajib bersifat <strong>Publik</strong>, (3) Folder <code>.build</code> / <code>bin/build</code> / <code>build</code> berisi file <code>.bin</code>.
+                </span>
+              </div>
+              <div class="row" style="align-items:center">
+                <button type="button" class="btn primary" id="inspectBuildBtn" ${hasInspector ? '' : 'disabled'}>
+                  Cek Persyaratan &amp; Scan .bin
+                </button>
+                <span class="hint" id="deployScanHint">
+                  ${
+                    !hasInspector
+                      ? 'Hubungkan api.para.engineer (mode Edge) untuk scan GitHub.'
+                      : verified
+                        ? `Terverifikasi: ${esc(d.repo)} (${esc(d.buildDir)}) · Chip: ${esc(d.chip || 'esp32')} · ${d.files.length} file .bin`
+                        : 'Belum diperiksa. Klik tombol di kiri setelah mengisi link GitHub.'
+                  }
+                </span>
+              </div>
+              ${
+                d.files?.length
+                  ? `<div class="viz-table">
+                      <table class="data-table">
+                        <thead><tr><th>File (.bin)</th><th>Size</th><th>Flash Offset</th></tr></thead>
+                        <tbody>
+                          ${d.files
+                            .map(
+                              (f, idx) => `
+                            <tr>
+                              <td><code>${esc(f.path)}</code></td>
+                              <td>${Math.max(1, Math.round((f.size || 0) / 1024))} KB</td>
+                              <td><input class="input" data-deploy-addr="${idx}" value="${esc(f.address)}" style="width:105px;padding:.3rem .5rem;font-size:.8rem;text-align:right" /></td>
+                            </tr>`
+                            )
+                            .join('')}
+                        </tbody>
+                      </table>
+                    </div>`
+                  : ''
+              }
+            </div>`
+          : '<p class="lg-off">Nonaktif. Aktifkan untuk memindai folder <code>.build/*.bin</code> dari repository GitHub publik.</p>'
+      }`;
+  }
+
   renderBar();
   renderMeta();
   renderImages();
   renderLinks();
+  renderDeploy();
   $('#shortCount', view).textContent = `${S.shortDescription.length}/200`;
 
   // ------------------------------------------------------------------
@@ -410,7 +506,6 @@ export default async function editor(view, ctx) {
     }
   });
 
-  // drag & drop urutan
   let dragFrom = null;
   grid.addEventListener('dragstart', (e) => {
     const t = e.target.closest('.img-tile');
@@ -433,7 +528,7 @@ export default async function editor(view, ctx) {
     const from = dragFrom;
     dragFrom = null;
     if (!t) return renderImages();
-    move(from, Number(t.dataset.i)); // item yang diseret menempati posisi tile target
+    move(from, Number(t.dataset.i));
   });
   grid.addEventListener('dragend', () => {
     dragFrom = null;
@@ -449,6 +544,9 @@ export default async function editor(view, ctx) {
     if (!row) return;
     S.links[row.dataset.g][Number(row.dataset.i)][e.target.dataset.f] = e.target.value;
     e.target.classList.remove('invalid');
+    if (row.dataset.g === 'repository') {
+      $('#deployReqCallout', view)?.classList.toggle('danger', !findGithubRepoUrl());
+    }
     markDirty();
   });
   linksPanel.addEventListener('change', (e) => {
@@ -474,7 +572,52 @@ export default async function editor(view, ctx) {
       S.links[row.dataset.g].splice(Number(row.dataset.i), 1);
       if (row.dataset.g === 'production' && !S.links.production.length) S.prodOn = false;
       renderLinks();
+      renderDeploy();
       markDirty();
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // browser deploy (Web Serial + scan .build/*.bin di GitHub publik)
+  // ------------------------------------------------------------------
+  const deployPanel = $('#panelDeploy', view);
+  deployPanel.addEventListener('change', (e) => {
+    if (e.target.id === 'deploySwitch') {
+      S.deployConfig = { ...(S.deployConfig || emptyDeployConfig()), enabled: e.target.checked };
+      renderDeploy();
+      markDirty();
+    }
+  });
+  deployPanel.addEventListener('input', (e) => {
+    const idx = e.target.dataset.deployAddr;
+    if (idx !== undefined && S.deployConfig.files?.[Number(idx)]) {
+      S.deployConfig.files[Number(idx)].address = e.target.value.trim();
+      e.target.classList.remove('invalid');
+      markDirty();
+    }
+  });
+  deployPanel.addEventListener('click', async (e) => {
+    const btn = e.target.closest('#inspectBuildBtn');
+    if (!btn) return;
+    const repoUrl = findGithubRepoUrl();
+    if (!repoUrl) return toast('Isi link Repository GitHub terlebih dahulu di panel Links.', 'error');
+
+    try {
+      const res = await busy(btn, () => api.inspectGithubBuild(repoUrl));
+      S.deployConfig = {
+        enabled: true,
+        repo: res.repo,
+        branch: res.branch,
+        buildDir: res.buildDir,
+        chip: res.chip,
+        flashSettings: res.flashSettings || {},
+        files: res.files || [],
+      };
+      renderDeploy();
+      markDirty();
+      toast(`Lolos! Ditemukan ${res.files.length} file .bin di ${res.buildDir}.`);
+    } catch (err) {
+      toast(err.message || 'Gagal memeriksa repository GitHub.', 'error');
     }
   });
 
@@ -482,7 +625,6 @@ export default async function editor(view, ctx) {
   // simpan & hapus
   // ------------------------------------------------------------------
   async function save(btn) {
-    // validasi
     if (!S.title.trim()) {
       title.classList.add('invalid');
       title.focus();
@@ -513,6 +655,22 @@ export default async function editor(view, ctx) {
       return toast('One of the links is not a valid URL.', 'error');
     }
 
+    if (S.deployConfig?.enabled) {
+      if (!findGithubRepoUrl()) {
+        return toast('Link Repository GitHub wajib diisi untuk mengaktifkan Browser Deploy.', 'error');
+      }
+      if (!S.deployConfig.files?.length) {
+        return toast('Klik "Cek Persyaratan & Scan .bin" dulu sebelum menyimpan.', 'error');
+      }
+      const badAddrIdx = S.deployConfig.files.findIndex((f) => !/^0x[0-9a-f]+$/i.test(String(f.address || '').trim()));
+      if (badAddrIdx !== -1) {
+        const inp = deployPanel.querySelector(`[data-deploy-addr="${badAddrIdx}"]`);
+        inp?.classList.add('invalid');
+        inp?.focus();
+        return toast('Format Flash Offset harus hex (contoh: 0x10000).', 'error');
+      }
+    }
+
     normalizeCover();
     const removedPaths = [...S.removedPaths, ...S.images.filter((i) => i.replacedPath).map((i) => i.replacedPath)];
 
@@ -527,6 +685,7 @@ export default async function editor(view, ctx) {
           status: S.status,
           imageRatio: S.imageRatio,
           links,
+          deployConfig: S.deployConfig?.enabled ? S.deployConfig : null,
           images: S.images.map((i) => ({ id: i.id, url: i.url, path: i.blob ? null : i.path, blob: i.blob, width: i.width, height: i.height, isCover: i.isCover })),
           removedPaths,
         })

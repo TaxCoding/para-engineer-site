@@ -154,6 +154,7 @@ export function createEdgeApi(cfg) {
       cover,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      deployConfig: r.deploy_config || null,
     };
   }
 
@@ -173,7 +174,16 @@ function normalizeContentUrls(node) {
   // ---------- API ----------
   const api = {
     mode: 'edge',
+    // ----- Deploy Firmware (GitHub .build/*.bin) -----
+    inspectGithubBuild: (repoUrl) =>
+      apiFetch('/v1/admin/github/inspect', {
+        method: 'POST',
+        auth: true,
+        body: { repoUrl },
+      }),
 
+    firmwareUrl: ({ repo, branch, path }) =>
+      `${baseUrl}/v1/github/raw?repo=${encodeURIComponent(repo)}&ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`,
     async init() {
       try {
         const raw = localStorage.getItem(SESSION_KEY);
@@ -298,6 +308,7 @@ function normalizeContentUrls(node) {
               full_description: draft.fullDescription,
               status: draft.status,
               image_ratio: draft.imageRatio,
+              deploy_config: draft.deployConfig || null,
               images,
               links: draft.links.map((l) => ({ type: l.type, label: l.label || '', url: l.url })),
             },

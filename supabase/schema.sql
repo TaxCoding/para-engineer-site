@@ -513,3 +513,72 @@ create policy media_admin_delete on storage.objects
 -- insert into public.admins (user_id)
 -- select id from auth.users where email = 'GANTI-DENGAN-EMAILMU@example.com'
 -- on conflict do nothing;
+-- 1) Tambahkan kolom deploy_config (aman dijalankan ulang)
+alter table public.projects
+  add column if not exists deploy_config jsonb;
+
+-- 2) Update fungsi save_project agar menyimpan deploy_config
+create or replace function public.save_project(p jsonb)
+returns uuid
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_id   uuid := nullif(p ->> 'id', '')::uuid;
+  v_img  jsonb;
+  v_link jsonb;
+  v_keep uuid[];
+  i      int := 0;
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+  if v_id is null then
+    v_id := gen_random_uuid();
+  end if;
+
+  if exists (select 1 from public.projects where id = v_id) then
+    update public.projects
+       set slug              = p ->> 'slug',
+           title             = p ->> 'title',
+           short_description = coalesce(p ->> 'short_description', ''),
+           full_description  = coalesce(p ->> 'full_description', ''),
+           status            = coalesce(p ->> 'status', 'draft'),
+           image_ratio       = coalesce(p ->> 'image_ratio', '16:9'),
+           deploy_config     = case when p ? 'deploy_config' then (p -> 'deploy_config') else deploy_config end
+     where id = v_id;
+  else
+    insert into public.projects (id, slug, title, short_description, full_description, status, image_ratio, deploy_config)
+    values (v_id, p ->> 'slug', p ->> 'title', coalesce(p ->> 'short_description', ''),
+            coalesce(p ->> 'full_description', ''), coalesce(p ->> 'status', 'draft'),
+            coalesce(p ->> 'image_ratio', '16:9'), p -> 'deploy_config');
+  end if;
+
+  select coalesce(array_agg((x ->> 'id')::uuid), '{}'::uuid[]) into v_keep
+    from jsonb_array_elements(coalesce(p -> 'images', '[]'::jsonb)) as x;
+  delete from public.project_images where project_id = v_id and id <> all (v_keep);
+
+  for v_img in select value from jsonb_array_elements(coalesce(p -> 'images', '[]'::jsonb)) loop
+    insert into public.project_images (id, project_id, path, sort_order, is_cover, width, height)
+    values ((v_img ->> 'id')::uuid, v_id, v_img ->> 'path', i,
+            coalesce((v_img ->> 'is_cover')::boolean, false),
+            nullif(v_img ->> 'width', '')::int, nullif(v_img ->> 'height', '')::int)
+    on conflict (id) do update
+       set path = excluded.path, sort_order = excluded.sort_order, is_cover = excluded.is_cover,
+           width = excluded.width, height = excluded.height
+     where public.project_images.project_id = v_id;
+    i := i + 1;
+  end loop;
+
+  delete from public.project_links where project_id = v_id;
+  i := 0;
+  for v_link in select value from jsonb_array_elements(coalesce(p -> 'links', '[]'::jsonb)) loop
+    insert into public.project_links (project_id, type, label, url, sort_order)
+    values (v_id, v_link ->> 'type', coalesce(v_link ->> 'label', ''), v_link ->> 'url', i);
+    i := i + 1;
+  end loop;
+
+  return v_id;
+end;
+$$;

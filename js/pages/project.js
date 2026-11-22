@@ -6,6 +6,7 @@ import { icon, LINK_TYPES } from '../lib/icons.js';
 import { projectCard, statusChip, placeholder } from '../lib/cards.js';
 import { socialButtons } from '../lib/shell.js';
 import { trackPageview } from '../lib/track.js';
+import { checkSerialSupport, testSerialPort, flashFirmwareFromConfig, openSerialMonitor, SERIAL_DRIVERS } from '../lib/flasher.js';
 
 const TYPE_ORDER = ['repository', 'production', 'documentation', 'demo'];
 
@@ -31,9 +32,11 @@ export async function projectPage(view, { params }) {
   if (project.status === 'published') trackPageview(`/projects/${project.slug}`, project.id);
 
   const stopGallery = initGallery(view, project);
+  const stopDeploy = initDeploy(view, project);
   const stopReveal = observeReveal(view);
   return () => {
     stopGallery();
+    stopDeploy();
     stopReveal();
   };
 }
@@ -81,6 +84,8 @@ function render(p, c, others) {
         : ''
     }
 
+    ${deploySection(p)}
+
     <section class="cta-card reveal" aria-label="Contact">
       <div class="cta-cats" aria-hidden="true"><img src="/assets/cat-1.png" alt="" draggable="false" /></div>
       <div class="cta-text">
@@ -102,6 +107,148 @@ function render(p, c, others) {
         : ''
     }
   </article>`;
+}
+
+function deploySection(p) {
+  const d = p.deployConfig;
+  if (!d?.enabled || !d.files?.length) return '';
+  const sup = checkSerialSupport();
+  return `
+  <section class="detail-links reveal" id="deploySection" aria-label="Deploy firmware">
+    <span class="eyebrow">Firmware Deploy</span>
+    <div class="panel deploy-box">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Flash to ${esc((d.chip || 'ESP32').toUpperCase())} via USB</div>
+          <div class="panel-sub">Source: <code>${esc(d.repo)}/${esc(d.buildDir)}</code> · ${d.files.length} binary file(s)</div>
+        </div>
+        <span class="chip status ${sup.ok ? 'published' : 'draft'}">${sup.ok ? 'Web Serial Ready' : 'Desktop Chrome/Edge Only'}</span>
+      </div>
+
+      ${
+        sup.ok
+          ? `<div class="deploy-files">
+              ${d.files.map((f) => `<span class="chip"><code>${esc(f.name)}</code> · ${esc(f.address)}</span>`).join('')}
+            </div>
+            <div class="deploy-actions">
+              <button type="button" class="btn primary" id="flashBtn" data-track="Flash firmware">Connect &amp; Flash</button>
+              <button type="button" class="btn" id="testPortBtn">Test Serial Port</button>
+              <button type="button" class="btn" id="monitorBtn">Serial Monitor</button>
+              <select class="select" id="baudSelect" style="width:auto">
+                <option value="460800" selected>460800 baud</option>
+                <option value="115200">115200 baud (Safe)</option>
+              </select>
+              <label class="switch"><input type="checkbox" id="eraseCheck" /><span class="track"></span><span>Erase flash</span></label>
+            </div>
+            <div class="deploy-progress" id="deployProgressWrap" hidden>
+              <div class="deploy-bar"><div class="deploy-bar-fill" id="deployBarFill"></div></div>
+              <span class="hint" id="deployStatusText">Preparing...</span>
+            </div>
+            <pre class="deploy-log" id="deployLog" hidden></pre>`
+          : `<div class="callout">
+              <span>Web Serial tidak tersedia di perangkat/browser ini. Buka halaman ini menggunakan <strong>Chrome, Edge, atau Opera di Laptop/PC</strong> untuk mem-flash firmware langsung lewat USB.</span>
+            </div>`
+      }
+
+      <details class="driver-help">
+        <summary>Port USB tidak muncul? Download driver serial di sini</summary>
+        <div class="driver-links">
+          ${SERIAL_DRIVERS.map((drv) => `<a class="btn sm" href="${esc(drv.url)}" target="_blank" rel="noopener noreferrer">${esc(drv.name)}</a>`).join('')}
+        </div>
+      </details>
+    </div>
+  </section>`;
+}
+
+function initDeploy(view, project) {
+  const box = $('#deploySection', view);
+  if (!box) return () => {};
+  const d = project.deployConfig;
+  const flashBtn = $('#flashBtn', box);
+  const testBtn = $('#testPortBtn', box);
+  const monitorBtn = $('#monitorBtn', box);
+  const progWrap = $('#deployProgressWrap', box);
+  const barFill = $('#deployBarFill', box);
+  const statusTxt = $('#deployStatusText', box);
+  const logEl = $('#deployLog', box);
+
+  let stopMonitor = null;
+  const appendLog = (line) => {
+    if (!logEl) return;
+    logEl.hidden = false;
+    logEl.textContent += (logEl.textContent ? '\n' : '') + line;
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+
+  testBtn?.addEventListener('click', async () => {
+    try {
+      const { info } = await testSerialPort();
+      appendLog(`Port siap! USB VID: ${info.usbVendorId || '-'} · PID: ${info.usbProductId || '-'}`);
+    } catch (err) {
+      if (err?.name !== 'NotFoundError') appendLog(`Gagal cek port: ${err.message}`);
+    }
+  });
+
+  flashBtn?.addEventListener('click', async () => {
+    if (stopMonitor) {
+      await stopMonitor();
+      stopMonitor = null;
+      if (monitorBtn) monitorBtn.textContent = 'Serial Monitor';
+    }
+    flashBtn.disabled = true;
+    progWrap.hidden = false;
+    logEl.textContent = '';
+    try {
+      await flashFirmwareFromConfig(d, {
+        baudrate: Number($('#baudSelect', box)?.value || 460800),
+        eraseAll: $('#eraseCheck', box)?.checked,
+        onLog: appendLog,
+        onProgress(pct, label) {
+          barFill.style.width = `${pct}%`;
+          statusTxt.textContent = `${pct}% — ${label}`;
+        },
+      });
+    } catch (err) {
+      if (err?.name !== 'NotFoundError') {
+        statusTxt.textContent = `Error: ${err.message}`;
+        appendLog(`ERROR: ${err.message}`);
+      } else {
+        progWrap.hidden = true;
+      }
+    } finally {
+      flashBtn.disabled = false;
+    }
+  });
+
+  monitorBtn?.addEventListener('click', async () => {
+    if (stopMonitor) {
+      await stopMonitor();
+      stopMonitor = null;
+      monitorBtn.textContent = 'Serial Monitor';
+      return;
+    }
+    try {
+      logEl.hidden = false;
+      stopMonitor = await openSerialMonitor({
+        baudRate: 115200,
+        onData(chunk) {
+          logEl.textContent += chunk;
+          logEl.scrollTop = logEl.scrollHeight;
+        },
+        onClose() {
+          stopMonitor = null;
+          monitorBtn.textContent = 'Serial Monitor';
+        },
+      });
+      monitorBtn.textContent = 'Close Monitor';
+    } catch (err) {
+      if (err?.name !== 'NotFoundError') appendLog(`Monitor error: ${err.message}`);
+    }
+  });
+
+  return () => {
+    if (stopMonitor) stopMonitor();
+  };
 }
 
 function linkCard(l) {
