@@ -1,0 +1,14 @@
+# Rahasia & API Keys (WAJIB!)
+.env
+.env.*
+
+# Server lokal (khusus pengetesan di laptop)
+dev.js
+
+# Folder bawaan Vercel & Node
+.vercel
+node_modules
+
+# File sistem OS
+.DS_Store
+Thumbs.db

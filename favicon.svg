@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background putih membulat agar jelas di Dark Mode -->
+  <rect width="64" height="64" rx="16" fill="#FFFFFF"/>
+  <!-- Kepala Kucing -->
+  <path d="M15 24C13 16 18.5 12 23.5 16C26.5 14 37.5 14 40.5 16C45.5 12 51 16 49 24C53 30 53 42 45 48C39.5 52 24.5 52 19 48C11 42 11 30 15 24Z" stroke="#0F172A" stroke-width="3.6" stroke-linejoin="round"/>
+  <!-- Mata -->
+  <circle cx="24.5" cy="31" r="3" fill="#0F172A"/>
+  <circle cx="39.5" cy="31" r="3" fill="#0F172A"/>
+  <!-- Hidung Biru -->
+  <path d="M29 36.5H35L32 40L29 36.5Z" fill="#2563EB"/>
+  <!-- Mulut & Blep -->
+  <path d="M27 42C29 44 31 43 32 41.5C33 43 35 44 37 42" stroke="#0F172A" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M30.5 43C30.5 45.8 33.5 45.8 33.5 43" stroke="#2563EB" stroke-width="2.8" stroke-linecap="round"/>
+  <!-- Kumis -->
+  <path d="M9 33L16.5 35M9 39L16.5 38M55 33L47.5 35M55 39L47.5 38" stroke="#0F172A" stroke-width="2.8" stroke-linecap="round"/>
+</svg>
