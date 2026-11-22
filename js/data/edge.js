@@ -157,11 +157,17 @@ export function createEdgeApi(cfg) {
     };
   }
 
-  function normalizeContentUrls(content) {
-    if (content?.about?.photo) {
-      content.about.photo = mediaUrl(content.about.photo);
+function normalizeContentUrls(node) {
+    if (typeof node === 'string') {
+      return node.includes('/storage/v1/object/public/media/') ? mediaUrl(node) : node;
     }
-    return content;
+    if (Array.isArray(node)) return node.map(normalizeContentUrls);
+    if (node && typeof node === 'object') {
+      for (const k of Object.keys(node)) {
+        node[k] = normalizeContentUrls(node[k]);
+      }
+    }
+    return node;
   }
 
   // ---------- API ----------
